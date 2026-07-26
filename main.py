@@ -8,7 +8,7 @@ from keep_alive import keep_alive
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
-WEBSITE_URL = "https://user-bot-g3kn.onrender.com"
+WEBSITE_URL = "https://user-bot-g3kn.onrender.com"  # TODO: naya Render URL yaha daalo
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
@@ -75,11 +75,22 @@ def title_small_caps(text, bold_first=False):
         out.append(first + rest)
     return " ".join(out)
 
+def bold_upper_smallcaps_lower(text):
+    out = []
+    for c in text:
+        if c.isupper():
+            out.append(BOLD.get(c, c))
+        elif c.islower():
+            out.append(SMALL_CAPS.get(c, c))
+        else:
+            out.append(c)
+    return "".join(out)
+
 def full_small_caps(text):
     return "".join(SMALL_CAPS.get(c.lower(), c) if c.islower() else c for c in text)
 
 def f1(t): return apply_map(t, SANS_BOLD_ITALIC)
-def f2(t): return title_small_caps(t, bold_first=True)
+def f2(t): return bold_upper_smallcaps_lower(t)
 def f3(t): return title_small_caps(t, bold_first=False)
 def f4(t): return apply_map(t, BOLD)
 def f5(t): return apply_map(t, ITALIC)
