@@ -1,6 +1,8 @@
 import os
 import time
 import json
+import random
+import asyncio
 import urllib.request
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -9,7 +11,7 @@ from keep_alive import keep_alive
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
-WEBSITE_URL = "https://user-bot-knxt.onrender.com"  # TODO: naya Render URL yaha daalo
+WEBSITE_URL = "https://user-bot-6gxe.onrender.com"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -123,21 +125,29 @@ FONTS = {
 active_font = {"key": None}
 skip_font_ids = set()
 
+COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
+                     "/savage_reply", "/save_message", "/complete_message")
+
 # ==================== GEMINI AUTO-REPLY ====================
 
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 PERSONA_PROMPT = (
     "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). "
-    "Personality: friendly, smart, cool aura, confident — thoda dangerous/edgy vibe ke saath "
-    "baat karte ho jaise koi cool anime character, lekin kabhi genuinely rude, threatening ya "
-    "harmful nahi hote. "
+    "Personality: friendly, smart, cool aura, confident, thoda dangerous/edgy vibe — "
+    "lekin bilkul ek normal, real insaan ki tarah baat karo. Kabhi genuinely rude, "
+    "threatening ya harmful nahi bante. "
+    "Replies chhote aur seedhe rakho by default — sirf tab lamba likho jab genuinely "
+    "detail ki zarurat ho (jaise koi specific sawaal poochhe). Chat casual ya funny "
+    "direction mein ja rahi ho tab bhi tum thoda normal, careful tone mein hi raho — "
+    "overboard funny banne ki koshish mat karo. "
+    "Kabhi bhi anime characters ke naam (jaise Gojo, Sukuna, Fushiguro, Madara, Itachi, "
+    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya "
+    "poochhe. "
     "Language rule: chahe user English mein likhe ya Hindi mein, tum HAMESHA Hinglish "
-    "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya pure "
-    "Devanagari Hindi mein nahi likhoge. "
-    "Replies chhote aur natural rakho, jaise real insaan chat kar raha ho, lambe paragraph "
-    "kabhi mat likhna."
+    "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya "
+    "pure Devanagari Hindi mein nahi likhoge."
 )
 
 def ask_gemini(user_message):
@@ -155,7 +165,34 @@ def ask_gemini(user_message):
         result = json.loads(resp.read().decode())
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
+GROUP_KEYWORDS = ("hello", "death", "sage")
+
+def has_keyword(text):
+    lower = text.lower()
+    return any(kw in lower for kw in GROUP_KEYWORDS)
+
+async def send_with_typing_delay(event, text, as_reply):
+    delay = random.uniform(1, 2) if len(text) <= 60 else random.uniform(3, 4)
+    async with client.action(event.chat_id, 'typing'):
+        await asyncio.sleep(delay)
+    if as_reply:
+        return await event.reply(text)
+    return await event.respond(text)
+
 auto_reply_chats = set()
+savage_reply_count = {"total": 0}
+
+# ---- Save Message / Savage Reply state ----
+saved_messages = []
+save_mode = {"active": False}
+savage_targets = {}  # (chat_id, user_id) -> {"index": 0}
+
+def next_savage_message(key):
+    state = savage_targets[key]
+    idx = state["index"]
+    msg = saved_messages[idx % len(saved_messages)]
+    state["index"] = idx + 1
+    return msg
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/auto_reply (on|off)$'))
 async def auto_reply_toggle(event):
@@ -168,14 +205,78 @@ async def auto_reply_toggle(event):
         auto_reply_chats.discard(chat_id)
         await event.edit("✅ Auto-reply OFF is chat ke liye.")
 
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/save_message$'))
+async def save_message_start(event):
+    save_mode["active"] = True
+    saved_messages.clear()
+    await event.edit("✅ Saving shuru — jo bhi messages ab bhejoge wo list mein save honge. Khatam karne ke liye /complete_message bhejo.")
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/complete_message$'))
+async def save_message_end(event):
+    save_mode["active"] = False
+    await event.edit(f"✅ {len(saved_messages)} messages save ho gaye.")
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/savage_reply (on|off)$'))
+async def savage_reply_toggle(event):
+    mode = event.pattern_match.group(1).lower()
+    if not event.is_reply:
+        await event.edit("❌ Us insaan ke kisi message pe reply karke ye command bhejo.")
+        return
+    replied = await event.get_reply_message()
+    target_id = replied.sender_id
+    key = (event.chat_id, target_id)
+    if mode == "on":
+        if not saved_messages:
+            await event.edit("❌ Pehle /save_message se kuch messages save karo.")
+            return
+        savage_targets[key] = {"index": 0}
+        await event.edit("✅ Savage reply ON is user ke liye — ab inka har message reply hoga, koi keyword/tag zaroori nahi.")
+    else:
+        savage_targets.pop(key, None)
+        await event.edit("✅ Savage reply OFF is user ke liye.")
+
+@client.on(events.NewMessage(outgoing=True))
+async def capture_saved_message(event):
+    if not save_mode["active"]:
+        return
+    text = event.raw_text
+    if not text or text.startswith("/"):
+        return
+    saved_messages.append(text)
+
 @client.on(events.NewMessage(incoming=True))
-async def auto_reply_handler(event):
-    if event.chat_id not in auto_reply_chats or not event.raw_text:
+async def incoming_handler(event):
+    text = event.raw_text
+    if not text:
+        return
+
+    chat_id = event.chat_id
+    is_group = not event.is_private
+    key = (chat_id, event.sender_id)
+
+    # Savage reply: sabse pehle check, koi gating nahi — target ka koi bhi
+    # message trigger karega, chahe wo kisi aur ko tag kare.
+    if key in savage_targets:
+        if not saved_messages:
+            return
+        reply_text = f2(next_savage_message(key))
+        sent = await send_with_typing_delay(event, reply_text, as_reply=True)
+        skip_font_ids.add(sent.id)
+        savage_reply_count["total"] += 1
+        return
+
+    # Normal auto-reply: group mein keyword/mention gating lagti hai
+    if is_group:
+        triggered = has_keyword(text) or event.message.mentioned
+        if not triggered:
+            return
+
+    if chat_id not in auto_reply_chats:
         return
     try:
-        reply = ask_gemini(event.raw_text)
-        sent = await event.respond(reply)
-        skip_font_ids.add(sent.id)  # is reply ko font system se bachao
+        reply = ask_gemini(text)
+        sent = await send_with_typing_delay(event, reply, as_reply=is_group)
+        skip_font_ids.add(sent.id)
     except Exception as e:
         print(f"Gemini error: {e}")
 
@@ -223,10 +324,15 @@ async def ping(event):
             f"Telegram edit: {telegram_edit_ms:.0f} ms\n"
             f"Telegram -> Website: {to_website_ms:.0f} ms\n"
             f"Website -> Telegram: {from_website_ms:.0f} ms\n"
-            f"Total round-trip: {total_http_ms:.0f} ms"
+            f"Total round-trip: {total_http_ms:.0f} ms\n"
+            f"Savage replies sent: {savage_reply_count['total']}"
         )
     except Exception as e:
-        result = f"🏓 Telegram edit: {telegram_edit_ms:.0f} ms\n❌ Website unreachable: {e}"
+        result = (
+            f"🏓 Telegram edit: {telegram_edit_ms:.0f} ms\n"
+            f"❌ Website unreachable: {e}\n"
+            f"Savage replies sent: {savage_reply_count['total']}"
+        )
     await event.edit(result)
 
 @client.on(events.NewMessage(outgoing=True))
@@ -235,7 +341,7 @@ async def convert_message(event):
         skip_font_ids.discard(event.id)
         return
     text = event.raw_text
-    if text.startswith(("/select", "/font_list", "/ping", "/auto_reply")):
+    if text.startswith(COMMAND_PREFIXES):
         return
     key = active_font["key"]
     if key is None:
