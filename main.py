@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import urllib.request
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -8,9 +9,12 @@ from keep_alive import keep_alive
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
-WEBSITE_URL = "https://user-bot-g3kn.onrender.com"  # TODO: naya Render URL yaha daalo
+WEBSITE_URL = "https://user-bot-knxt.onrender.com"  # TODO: naya Render URL yaha daalo
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+
+# ==================== FONT SYSTEM ====================
 
 def build_map(upper_start, lower_start):
     m = {}
@@ -106,24 +110,76 @@ def f14(t): return apply_map(t, SQUARED)
 def f15(t): return t[::-1]
 
 FONTS = {
-    "f1": ("Sans Bold Italic", f1),
-    "f2": ("Bold + Small Caps", f2),
-    "f3": ("Normal + Small Caps", f3),
-    "f4": ("Bold", f4),
-    "f5": ("Italic", f5),
-    "f6": ("Monospace", f6),
-    "f7": ("Double-struck", f7),
-    "f8": ("Bold Fraktur", f8),
-    "f9": ("Bold Script", f9),
-    "f10": ("Circled", f10),
-    "f11": ("Bold Italic", f11),
-    "f12": ("Sans Bold", f12),
-    "f13": ("Full Small Caps", f13),
-    "f14": ("Squared", f14),
+    "f1": ("Sans Bold Italic", f1), "f2": ("Bold + Small Caps", f2),
+    "f3": ("Normal + Small Caps", f3), "f4": ("Bold", f4),
+    "f5": ("Italic", f5), "f6": ("Monospace", f6),
+    "f7": ("Double-struck", f7), "f8": ("Bold Fraktur", f8),
+    "f9": ("Bold Script", f9), "f10": ("Circled", f10),
+    "f11": ("Bold Italic", f11), "f12": ("Sans Bold", f12),
+    "f13": ("Full Small Caps", f13), "f14": ("Squared", f14),
     "f15": ("Reverse Text", f15),
 }
 
 active_font = {"key": None}
+skip_font_ids = set()
+
+# ==================== GEMINI AUTO-REPLY ====================
+
+GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+PERSONA_PROMPT = (
+    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). "
+    "Personality: friendly, smart, cool aura, confident — thoda dangerous/edgy vibe ke saath "
+    "baat karte ho jaise koi cool anime character, lekin kabhi genuinely rude, threatening ya "
+    "harmful nahi hote. "
+    "Language rule: chahe user English mein likhe ya Hindi mein, tum HAMESHA Hinglish "
+    "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya pure "
+    "Devanagari Hindi mein nahi likhoge. "
+    "Replies chhote aur natural rakho, jaise real insaan chat kar raha ho, lambe paragraph "
+    "kabhi mat likhna."
+)
+
+def ask_gemini(user_message):
+    body = {
+        "contents": [{"parts": [{"text": user_message}]}],
+        "systemInstruction": {"parts": [{"text": PERSONA_PROMPT}]},
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        GEMINI_URL,
+        data=data,
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        result = json.loads(resp.read().decode())
+    return result["candidates"][0]["content"]["parts"][0]["text"]
+
+auto_reply_chats = set()
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/auto_reply (on|off)$'))
+async def auto_reply_toggle(event):
+    mode = event.pattern_match.group(1).lower()
+    chat_id = event.chat_id
+    if mode == "on":
+        auto_reply_chats.add(chat_id)
+        await event.edit("✅ Auto-reply ON is chat ke liye.")
+    else:
+        auto_reply_chats.discard(chat_id)
+        await event.edit("✅ Auto-reply OFF is chat ke liye.")
+
+@client.on(events.NewMessage(incoming=True))
+async def auto_reply_handler(event):
+    if event.chat_id not in auto_reply_chats or not event.raw_text:
+        return
+    try:
+        reply = ask_gemini(event.raw_text)
+        sent = await event.respond(reply)
+        skip_font_ids.add(sent.id)  # is reply ko font system se bachao
+    except Exception as e:
+        print(f"Gemini error: {e}")
+
+# ==================== COMMANDS ====================
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/select (\S+)$'))
 async def select_font(event):
@@ -154,17 +210,14 @@ async def ping(event):
     await event.edit("🏓 Pinging...")
     t1 = time.time()
     telegram_edit_ms = (t1 - t0) * 1000
-
     try:
         t_before = time.time()
         with urllib.request.urlopen(WEBSITE_URL + "/ping", timeout=15) as resp:
             server_ts = float(resp.read().decode().strip())
         t_after = time.time()
-
         to_website_ms = (server_ts - t_before) * 1000
         from_website_ms = (t_after - server_ts) * 1000
         total_http_ms = (t_after - t_before) * 1000
-
         result = (
             "🏓 Pong!\n\n"
             f"Telegram edit: {telegram_edit_ms:.0f} ms\n"
@@ -174,13 +227,15 @@ async def ping(event):
         )
     except Exception as e:
         result = f"🏓 Telegram edit: {telegram_edit_ms:.0f} ms\n❌ Website unreachable: {e}"
-
     await event.edit(result)
 
 @client.on(events.NewMessage(outgoing=True))
 async def convert_message(event):
+    if event.id in skip_font_ids:
+        skip_font_ids.discard(event.id)
+        return
     text = event.raw_text
-    if text.startswith("/select") or text.startswith("/font_list") or text.startswith("/ping"):
+    if text.startswith(("/select", "/font_list", "/ping", "/auto_reply")):
         return
     key = active_font["key"]
     if key is None:
