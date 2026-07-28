@@ -125,8 +125,14 @@ FONTS = {
 active_font = {"key": None}
 skip_font_ids = set()
 
+# Bot ke apne (Sage-facing) confirmation/status messages F13 + English mein
+def sys_text(s):
+    return full_small_caps(s)
+
 COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
-                     "/savage_reply", "/save_message", "/complete_message")
+                     "/savage_reply", "/save_message", "/complete_message",
+                     "/current_reply_on", "/off_auto_reply_by_num",
+                     "/off_savage_reply_by_num", "/command_list")
 
 # ==================== GEMINI AUTO-REPLY ====================
 
@@ -179,61 +185,147 @@ async def send_with_typing_delay(event, text, as_reply):
         return await event.reply(text)
     return await event.respond(text)
 
-auto_reply_chats = set()
-savage_reply_count = {"total": 0}
+# chat_id -> {"is_group": bool}   (dict, taaki order guaranteed rahe numbering ke liye)
+auto_reply_chats = {}
 
 # ---- Save Message / Savage Reply state ----
 saved_messages = []
 save_mode = {"active": False}
-savage_targets = {}  # (chat_id, user_id) -> {"index": 0}
+savage_targets = {}          # (chat_id, user_id) -> True
+savage_global_index = {"value": 0}   # SHARED index, sab targets isi ko share karte hai
 
-def next_savage_message(key):
-    state = savage_targets[key]
-    idx = state["index"]
+def next_savage_message():
+    idx = savage_global_index["value"]
     msg = saved_messages[idx % len(saved_messages)]
-    state["index"] = idx + 1
+    savage_global_index["value"] = idx + 1
     return msg
+
+def ordered_auto_reply_chats():
+    dm_ids = [cid for cid, info in auto_reply_chats.items() if not info["is_group"]]
+    group_ids = [cid for cid, info in auto_reply_chats.items() if info["is_group"]]
+    return dm_ids + group_ids
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/auto_reply (on|off)$'))
 async def auto_reply_toggle(event):
     mode = event.pattern_match.group(1).lower()
     chat_id = event.chat_id
     if mode == "on":
-        auto_reply_chats.add(chat_id)
-        await event.edit("✅ Auto-reply ON is chat ke liye.")
+        auto_reply_chats[chat_id] = {"is_group": not event.is_private}
+        await event.edit(sys_text("Auto-reply ON for this chat."))
     else:
-        auto_reply_chats.discard(chat_id)
-        await event.edit("✅ Auto-reply OFF is chat ke liye.")
+        auto_reply_chats.pop(chat_id, None)
+        await event.edit(sys_text("Auto-reply OFF for this chat."))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/save_message$'))
 async def save_message_start(event):
     save_mode["active"] = True
-    saved_messages.clear()
-    await event.edit("✅ Saving shuru — jo bhi messages ab bhejoge wo list mein save honge. Khatam karne ke liye /complete_message bhejo.")
+    await event.edit(sys_text("Saving started — messages you send now will be added to the list. Send /complete_message to finish."))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/complete_message$'))
 async def save_message_end(event):
     save_mode["active"] = False
-    await event.edit(f"✅ {len(saved_messages)} messages save ho gaye.")
+    await event.edit(sys_text(f"Saving complete. Total messages saved: {len(saved_messages)}"))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/savage_reply (on|off)$'))
 async def savage_reply_toggle(event):
     mode = event.pattern_match.group(1).lower()
     if not event.is_reply:
-        await event.edit("❌ Us insaan ke kisi message pe reply karke ye command bhejo.")
+        await event.edit(sys_text("Reply to that person's message to use this command."))
         return
     replied = await event.get_reply_message()
     target_id = replied.sender_id
     key = (event.chat_id, target_id)
     if mode == "on":
         if not saved_messages:
-            await event.edit("❌ Pehle /save_message se kuch messages save karo.")
+            await event.edit(sys_text("Save some messages first using /save_message."))
             return
-        savage_targets[key] = {"index": 0}
-        await event.edit("✅ Savage reply ON is user ke liye — ab inka har message reply hoga, koi keyword/tag zaroori nahi.")
+        savage_targets[key] = True
+        await event.edit(sys_text("Savage reply ON for this user."))
     else:
         savage_targets.pop(key, None)
-        await event.edit("✅ Savage reply OFF is user ke liye.")
+        await event.edit(sys_text("Savage reply OFF for this user."))
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/current_reply_on$'))
+async def current_reply_on(event):
+    lines = []
+    num = 1
+
+    dm_ids = [cid for cid, info in auto_reply_chats.items() if not info["is_group"]]
+    group_ids = [cid for cid, info in auto_reply_chats.items() if info["is_group"]]
+
+    if dm_ids:
+        lines.append(sys_text("Dm Auto Reply On"))
+        for cid in dm_ids:
+            entity = await client.get_entity(cid)
+            name = getattr(entity, "first_name", None) or getattr(entity, "title", None) or "Unknown"
+            lines.append(f"{num}. {name}")
+            num += 1
+
+    if group_ids:
+        if dm_ids:
+            lines.append("")
+        lines.append(sys_text("Group Auto Reply On"))
+        for cid in group_ids:
+            entity = await client.get_entity(cid)
+            name = getattr(entity, "title", None) or "Unknown"
+            lines.append(f"{num}. {name}")
+            num += 1
+
+    if savage_targets:
+        if lines:
+            lines.append("")
+        lines.append(sys_text("Savage Reply On"))
+        snum = 1
+        for (cid, uid) in savage_targets:
+            user = await client.get_entity(uid)
+            name = getattr(user, "first_name", None) or "Unknown"
+            lines.append(f"{snum}. {name}")
+            snum += 1
+
+    if not lines:
+        lines = [sys_text("Nothing is currently on.")]
+
+    await event.edit("\n".join(lines))
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/off_auto_reply_by_num (\d+)$'))
+async def off_auto_reply_by_num(event):
+    n = int(event.pattern_match.group(1))
+    ids = ordered_auto_reply_chats()
+    if 1 <= n <= len(ids):
+        auto_reply_chats.pop(ids[n - 1], None)
+        await event.edit(sys_text(f"Auto-reply #{n} turned off."))
+    else:
+        await event.edit(sys_text("Invalid number."))
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/off_savage_reply_by_num (\d+)$'))
+async def off_savage_reply_by_num(event):
+    n = int(event.pattern_match.group(1))
+    keys = list(savage_targets.keys())
+    if 1 <= n <= len(keys):
+        savage_targets.pop(keys[n - 1], None)
+        await event.edit(sys_text(f"Savage reply #{n} turned off."))
+    else:
+        await event.edit(sys_text("Invalid number."))
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/command_list$'))
+async def command_list(event):
+    rows = [
+        ("/select f1-f15 / none", "Choose a font for your own typed messages, or reset to normal"),
+        ("/font_list", "Show all available fonts with a sample"),
+        ("/ping", "Show Telegram and website latency"),
+        ("/auto_reply on / off", "AI auto-reply for this chat (DM: every message, Group: keyword/tag only)"),
+        ("/save_message", "Start saving your next messages into the savage-reply list"),
+        ("/complete_message", "Stop saving messages"),
+        ("/savage_reply on / off", "Reply to a person's message to target them with the saved-message sequence"),
+        ("/current_reply_on", "List every chat/person with auto-reply or savage-reply active"),
+        ("/off_auto_reply_by_num N", "Turn off auto-reply using the number from /current_reply_on"),
+        ("/off_savage_reply_by_num N", "Turn off savage-reply using the number from /current_reply_on"),
+        ("/command_list", "Show this list"),
+    ]
+    lines = [sys_text("All Commands"), ""]
+    for cmd, desc in rows:
+        lines.append(f"{cmd} — {desc}")
+    await event.edit("\n".join(lines))
 
 @client.on(events.NewMessage(outgoing=True))
 async def capture_saved_message(event):
@@ -259,10 +351,9 @@ async def incoming_handler(event):
     if key in savage_targets:
         if not saved_messages:
             return
-        reply_text = f2(next_savage_message(key))
+        reply_text = f2(next_savage_message())
         sent = await send_with_typing_delay(event, reply_text, as_reply=True)
         skip_font_ids.add(sent.id)
-        savage_reply_count["total"] += 1
         return
 
     # Normal auto-reply: group mein keyword/mention gating lagti hai
@@ -280,35 +371,36 @@ async def incoming_handler(event):
     except Exception as e:
         print(f"Gemini error: {e}")
 
-# ==================== COMMANDS ====================
+# ==================== FONT COMMANDS ====================
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/select (\S+)$'))
 async def select_font(event):
     choice = event.pattern_match.group(1).lower()
     if choice == "none":
         active_font["key"] = None
-        await event.edit("✅ Font reset to normal.")
+        await event.edit(sys_text("Font reset to normal."))
         return
     if choice in FONTS:
         active_font["key"] = choice
         name = FONTS[choice][0]
-        await event.edit(f"✅ Font set to {choice.upper()} ({name}).")
+        await event.edit(sys_text(f"Font set to {choice.upper()} ({name})."))
     else:
-        await event.edit("❌ Invalid font. Use /font_list to see options.")
+        await event.edit(sys_text("Invalid font. Use /font_list to see options."))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/font_list$'))
 async def font_list(event):
-    lines = ["Available Fonts:\n"]
+    lines = [sys_text("Available Fonts:"), ""]
     for key, (name, fn) in FONTS.items():
         sample = fn("Hello")
         lines.append(f"{key} -> {sample}  ({name})")
-    lines.append("\n/select f1 se f15 tak, ya /select none")
+    lines.append("")
+    lines.append(sys_text("Use /select f1 to f15, or /select none"))
     await event.edit("\n".join(lines))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/ping$'))
 async def ping(event):
     t0 = time.time()
-    await event.edit("🏓 Pinging...")
+    await event.edit("🏓 " + sys_text("Pinging..."))
     t1 = time.time()
     telegram_edit_ms = (t1 - t0) * 1000
     try:
@@ -320,18 +412,18 @@ async def ping(event):
         from_website_ms = (t_after - server_ts) * 1000
         total_http_ms = (t_after - t_before) * 1000
         result = (
-            "🏓 Pong!\n\n"
-            f"Telegram edit: {telegram_edit_ms:.0f} ms\n"
-            f"Telegram -> Website: {to_website_ms:.0f} ms\n"
-            f"Website -> Telegram: {from_website_ms:.0f} ms\n"
-            f"Total round-trip: {total_http_ms:.0f} ms\n"
-            f"Savage replies sent: {savage_reply_count['total']}"
+            "🏓 " + sys_text("Pong!") + "\n\n"
+            + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
+            + sys_text("Telegram to Website") + f": {to_website_ms:.0f} ms\n"
+            + sys_text("Website to Telegram") + f": {from_website_ms:.0f} ms\n"
+            + sys_text("Total round-trip") + f": {total_http_ms:.0f} ms\n"
+            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
         )
     except Exception as e:
         result = (
-            f"🏓 Telegram edit: {telegram_edit_ms:.0f} ms\n"
-            f"❌ Website unreachable: {e}\n"
-            f"Savage replies sent: {savage_reply_count['total']}"
+            "🏓 " + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
+            + "❌ " + sys_text("Website unreachable") + f": {e}\n"
+            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
         )
     await event.edit(result)
 
@@ -352,7 +444,7 @@ async def convert_message(event):
         await event.edit(new_text)
 
 async def notify_started():
-    await client.send_message("me", "✅ Userbot Connected — font system ready.")
+    await client.send_message("me", "✅ " + sys_text("Userbot Connected — font system ready."))
 
 if __name__ == "__main__":
     keep_alive()
