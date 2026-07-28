@@ -4,6 +4,7 @@ import json
 import random
 import asyncio
 import urllib.request
+import urllib.error
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from keep_alive import keep_alive
@@ -167,15 +168,34 @@ def ask_gemini(user_message):
         data=data,
         headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        result = json.loads(resp.read().decode())
-    return result["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            result = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode(errors="ignore")
+        raise RuntimeError(f"Gemini HTTP {e.code}: {error_body[:200]}")
+
+    candidates = result.get("candidates")
+    if not candidates:
+        reason = result.get("promptFeedback", {}).get("blockReason", "unknown")
+        raise RuntimeError(f"No candidates returned (blockReason: {reason})")
+    parts = candidates[0].get("content", {}).get("parts")
+    if not parts:
+        finish_reason = candidates[0].get("finishReason", "unknown")
+        raise RuntimeError(f"Empty content (finishReason: {finish_reason})")
+    return parts[0]["text"]
 
 GROUP_KEYWORDS = ("hello", "death", "sage")
 
 def has_keyword(text):
     lower = text.lower()
     return any(kw in lower for kw in GROUP_KEYWORDS)
+
+async def notify_error(message):
+    try:
+        await client.send_message("me", f"⚠️ {message}")
+    except Exception:
+        pass
 
 async def send_with_typing_delay(event, text, as_reply):
     delay = random.uniform(1, 2) if len(text) <= 60 else random.uniform(3, 4)
@@ -351,9 +371,13 @@ async def incoming_handler(event):
     if key in savage_targets:
         if not saved_messages:
             return
-        reply_text = f2(next_savage_message())
-        sent = await send_with_typing_delay(event, reply_text, as_reply=True)
-        skip_font_ids.add(sent.id)
+        try:
+            reply_text = f2(next_savage_message())
+            sent = await send_with_typing_delay(event, reply_text, as_reply=True)
+            skip_font_ids.add(sent.id)
+        except Exception as e:
+            print(f"Savage reply error: {e}")
+            await notify_error(f"Savage reply failed: {e}")
         return
 
     # Normal auto-reply: group mein keyword/mention gating lagti hai
@@ -370,6 +394,7 @@ async def incoming_handler(event):
         skip_font_ids.add(sent.id)
     except Exception as e:
         print(f"Gemini error: {e}")
+        await notify_error(f"Auto-reply failed: {e}")
 
 # ==================== FONT COMMANDS ====================
 
