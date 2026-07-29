@@ -12,7 +12,7 @@ from keep_alive import keep_alive
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
-WEBSITE_URL = "https://user-bot-6gxe.onrender.com"
+WEBSITE_URL = "https://user-bot-y23w.onrender.com"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -168,7 +168,11 @@ def ask_ai(user_message):
     req = urllib.request.Request(
         GROQ_URL,
         data=data,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -466,4 +470,4 @@ if __name__ == "__main__":
     with client:
         client.loop.run_until_complete(notify_started())
         print("Userbot running...")
-        client.run_until_disconnected()
+        client.run_until_disconnected()            
