@@ -13,7 +13,7 @@ API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 WEBSITE_URL = "https://user-bot-6gxe.onrender.com"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
@@ -126,7 +126,6 @@ FONTS = {
 active_font = {"key": None}
 skip_font_ids = set()
 
-# Bot ke apne (Sage-facing) confirmation/status messages F13 + English mein
 def sys_text(s):
     return full_small_caps(s)
 
@@ -135,10 +134,10 @@ COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/current_reply_on", "/off_auto_reply_by_num",
                      "/off_savage_reply_by_num", "/command_list")
 
-# ==================== GEMINI AUTO-REPLY ====================
+# ==================== GROQ AUTO-REPLY ====================
 
-GEMINI_MODEL = "gemini-3.6-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 PERSONA_PROMPT = (
     "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). "
@@ -157,33 +156,31 @@ PERSONA_PROMPT = (
     "pure Devanagari Hindi mein nahi likhoge."
 )
 
-def ask_gemini(user_message):
+def ask_ai(user_message):
     body = {
-        "contents": [{"parts": [{"text": user_message}]}],
-        "systemInstruction": {"parts": [{"text": PERSONA_PROMPT}]},
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": PERSONA_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
     }
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
-        GEMINI_URL,
+        GROQ_URL,
         data=data,
-        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {GROQ_API_KEY}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         error_body = e.read().decode(errors="ignore")
-        raise RuntimeError(f"Gemini HTTP {e.code}: {error_body[:200]}")
+        raise RuntimeError(f"Groq HTTP {e.code}: {error_body[:200]}")
 
-    candidates = result.get("candidates")
-    if not candidates:
-        reason = result.get("promptFeedback", {}).get("blockReason", "unknown")
-        raise RuntimeError(f"No candidates returned (blockReason: {reason})")
-    parts = candidates[0].get("content", {}).get("parts")
-    if not parts:
-        finish_reason = candidates[0].get("finishReason", "unknown")
-        raise RuntimeError(f"Empty content (finishReason: {finish_reason})")
-    return parts[0]["text"]
+    choices = result.get("choices")
+    if not choices:
+        raise RuntimeError(f"No choices returned: {result}")
+    return choices[0]["message"]["content"]
 
 GROUP_KEYWORDS = ("hello", "death", "sage")
 
@@ -205,14 +202,12 @@ async def send_with_typing_delay(event, text, as_reply):
         return await event.reply(text)
     return await event.respond(text)
 
-# chat_id -> {"is_group": bool}   (dict, taaki order guaranteed rahe numbering ke liye)
 auto_reply_chats = {}
 
-# ---- Save Message / Savage Reply state ----
 saved_messages = []
 save_mode = {"active": False}
-savage_targets = {}          # (chat_id, user_id) -> True
-savage_global_index = {"value": 0}   # SHARED index, sab targets isi ko share karte hai
+savage_targets = {}
+savage_global_index = {"value": 0}
 
 def next_savage_message():
     idx = savage_global_index["value"]
@@ -329,23 +324,21 @@ async def off_savage_reply_by_num(event):
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/command_list$'))
 async def command_list(event):
-    rows = [
-        ("/select f1-f15 / none", "Choose a font for your own typed messages, or reset to normal"),
-        ("/font_list", "Show all available fonts with a sample"),
-        ("/ping", "Show Telegram and website latency"),
-        ("/auto_reply on / off", "AI auto-reply for this chat (DM: every message, Group: keyword/tag only)"),
-        ("/save_message", "Start saving your next messages into the savage-reply list"),
-        ("/complete_message", "Stop saving messages"),
-        ("/savage_reply on / off", "Reply to a person's message to target them with the saved-message sequence"),
-        ("/current_reply_on", "List every chat/person with auto-reply or savage-reply active"),
-        ("/off_auto_reply_by_num N", "Turn off auto-reply using the number from /current_reply_on"),
-        ("/off_savage_reply_by_num N", "Turn off savage-reply using the number from /current_reply_on"),
-        ("/command_list", "Show this list"),
-    ]
-    lines = [sys_text("All Commands"), ""]
-    for cmd, desc in rows:
-        lines.append(f"{cmd} — {desc}")
-    await event.edit("\n".join(lines))
+    raw = (
+        "All Commands\n\n"
+        "/select f1-f15 / none — Choose a font for your own typed messages, or reset to normal\n\n"
+        "/font_list — Show all available fonts with a sample\n\n"
+        "/ping — Show Telegram and website latency\n\n"
+        "/auto_reply on / off — AI auto-reply for this chat (DM: every message, Group: keyword/tag only)\n\n"
+        "/save_message — Start saving your next messages into the savage-reply list\n\n"
+        "/complete_message — Stop saving messages\n\n"
+        "/savage_reply on / off — Reply to a person's message to target them with the saved-message sequence\n\n"
+        "/current_reply_on — List every chat/person with auto-reply or savage-reply active\n\n"
+        "/off_auto_reply_by_num N — Turn off auto-reply using the number from /current_reply_on\n\n"
+        "/off_savage_reply_by_num N — Turn off savage-reply using the number from /current_reply_on\n\n"
+        "/command_list — Show this list"
+    )
+    await event.edit(sys_text(raw))
 
 @client.on(events.NewMessage(outgoing=True))
 async def capture_saved_message(event):
@@ -366,8 +359,6 @@ async def incoming_handler(event):
     is_group = not event.is_private
     key = (chat_id, event.sender_id)
 
-    # Savage reply: sabse pehle check, koi gating nahi — target ka koi bhi
-    # message trigger karega, chahe wo kisi aur ko tag kare.
     if key in savage_targets:
         if not saved_messages:
             return
@@ -380,7 +371,6 @@ async def incoming_handler(event):
             await notify_error(f"Savage reply failed: {e}")
         return
 
-    # Normal auto-reply: group mein keyword/mention gating lagti hai
     if is_group:
         triggered = has_keyword(text) or event.message.mentioned
         if not triggered:
@@ -389,11 +379,11 @@ async def incoming_handler(event):
     if chat_id not in auto_reply_chats:
         return
     try:
-        reply = ask_gemini(text)
+        reply = ask_ai(text)
         sent = await send_with_typing_delay(event, reply, as_reply=is_group)
         skip_font_ids.add(sent.id)
     except Exception as e:
-        print(f"Gemini error: {e}")
+        print(f"Auto-reply error: {e}")
         await notify_error(f"Auto-reply failed: {e}")
 
 # ==================== FONT COMMANDS ====================
