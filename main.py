@@ -132,7 +132,8 @@ def sys_text(s):
 COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/savage_reply", "/save_message", "/complete_message",
                      "/current_reply_on", "/off_auto_reply_by_num",
-                     "/off_savage_reply_by_num", "/command_list")
+                     "/off_savage_reply_by_num", "/command_list",
+                     "/fire_all", "/clear_savage")
 
 # ==================== GROQ AUTO-REPLY ====================
 
@@ -140,20 +141,20 @@ GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 PERSONA_PROMPT = (
-    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). hamesha Real Human jaisa rahna or felling dikhana jab jarurat ho"
+    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). lekin Freind ki tarah baat karna sabse"
     "Personality: friendly, smart, cool aura, confident, thoda dangerous/edgy vibe — "
     "lekin bilkul ek normal, real insaan ki tarah baat karo. Kabhi genuinely rude, "
-    "threatening ya harmful nahi bante. "
+    "majak karo jab jarurat pade bina Mtlb ke nahi lekin. "
     "Replies chhote aur seedhe rakho by default — sirf tab lamba likho jab genuinely "
     "detail ki zarurat ho (jaise koi specific sawaal poochhe). Chat casual ya funny "
     "direction mein ja rahi ho tab bhi tum thoda normal, careful tone mein hi raho — "
     "overboard funny banne ki koshish mat karo. "
     "Kabhi bhi anime characters ke naam (jaise Gojo, Sukuna, Fushiguro, Madara, Itachi, "
-    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya "
+    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya or kisi ko papa dada ye sab mt bolna koi bolne ko kahe to bhi lekin female ko bahen or male ko brother bol sakte ho "
     "poochhe. "
     "Language rule: chahe user English mein likhe ya Hindi mein, tum HAMESHA Hinglish "
     "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya "
-    "pure Devanagari Hindi mein likh sakte ho jab user kahe. khud ko kabhi ai mt batana bolna tum real ho or kisi user ko papa dada ye sab mt bolna jisse tumhari bezati ho lekin tum kisi female ko sister or boy ko brother kah sakte ho or koi kuch kahe kahne ko jaise papa mummy wagera to mt kahna jisse tumhari beazati ho"
+    "pure Devanagari Hindi mein nahi likhoge jarurat padne mai bol sakte ho kabhi reveal mt karna ki tum ai ho koi puchhe to bhi."
 )
 
 def ask_ai(user_message):
@@ -224,6 +225,51 @@ def ordered_auto_reply_chats():
     group_ids = [cid for cid, info in auto_reply_chats.items() if info["is_group"]]
     return dm_ids + group_ids
 
+# ==================== STATE PERSISTENCE (survives redeploys) ====================
+
+STATE_MARKER = "🗄 STATE_BACKUP (auto-generated, do not delete)"
+state_message_id = {"id": None}
+
+def serialize_state():
+    return json.dumps({
+        "saved_messages": saved_messages,
+        "savage_targets": [[cid, uid] for (cid, uid) in savage_targets.keys()],
+        "savage_global_index": savage_global_index["value"],
+        "auto_reply_chats": [[cid, info["is_group"]] for cid, info in auto_reply_chats.items()],
+    })
+
+async def save_state():
+    payload = STATE_MARKER + "\n" + serialize_state()
+    try:
+        if state_message_id["id"] is None:
+            sent = await client.send_message("me", payload)
+            state_message_id["id"] = sent.id
+        else:
+            await client.edit_message("me", state_message_id["id"], payload)
+    except Exception as e:
+        print(f"State save error: {e}")
+
+async def load_state():
+    try:
+        async for msg in client.iter_messages("me", search="STATE_BACKUP", limit=5):
+            if msg.text and msg.text.startswith(STATE_MARKER):
+                state_message_id["id"] = msg.id
+                data = json.loads(msg.text[len(STATE_MARKER):].strip())
+                saved_messages.clear()
+                saved_messages.extend(data.get("saved_messages", []))
+                savage_targets.clear()
+                for cid, uid in data.get("savage_targets", []):
+                    savage_targets[(cid, uid)] = True
+                savage_global_index["value"] = data.get("savage_global_index", 0)
+                auto_reply_chats.clear()
+                for cid, is_group in data.get("auto_reply_chats", []):
+                    auto_reply_chats[cid] = {"is_group": is_group}
+                return
+    except Exception as e:
+        print(f"State load error: {e}")
+
+# ==================== COMMANDS ====================
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/auto_reply (on|off)$'))
 async def auto_reply_toggle(event):
     mode = event.pattern_match.group(1).lower()
@@ -234,6 +280,7 @@ async def auto_reply_toggle(event):
     else:
         auto_reply_chats.pop(chat_id, None)
         await event.edit(sys_text("Auto-reply OFF for this chat."))
+    await save_state()
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/save_message$'))
 async def save_message_start(event):
@@ -244,6 +291,7 @@ async def save_message_start(event):
 async def save_message_end(event):
     save_mode["active"] = False
     await event.edit(sys_text(f"Saving complete. Total messages saved: {len(saved_messages)}"))
+    await save_state()
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/savage_reply (on|off)$'))
 async def savage_reply_toggle(event):
@@ -263,6 +311,28 @@ async def savage_reply_toggle(event):
     else:
         savage_targets.pop(key, None)
         await event.edit(sys_text("Savage reply OFF for this user."))
+    await save_state()
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/fire_all$'))
+async def fire_all(event):
+    if not saved_messages:
+        await event.edit(sys_text("No savage messages saved."))
+        return
+    total = len(saved_messages)
+    await event.edit(sys_text(f"Firing {total} messages..."))
+    for msg in saved_messages:
+        styled = f2(msg)
+        sent = await client.send_message(event.chat_id, styled)
+        skip_font_ids.add(sent.id)
+        await asyncio.sleep(0.7)
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/clear_savage$'))
+async def clear_savage(event):
+    saved_messages.clear()
+    savage_targets.clear()
+    savage_global_index["value"] = 0
+    await save_state()
+    await event.edit(sys_text("All savage messages and targets cleared."))
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/current_reply_on$'))
 async def current_reply_on(event):
@@ -312,6 +382,7 @@ async def off_auto_reply_by_num(event):
     ids = ordered_auto_reply_chats()
     if 1 <= n <= len(ids):
         auto_reply_chats.pop(ids[n - 1], None)
+        await save_state()
         await event.edit(sys_text(f"Auto-reply #{n} turned off."))
     else:
         await event.edit(sys_text("Invalid number."))
@@ -322,6 +393,7 @@ async def off_savage_reply_by_num(event):
     keys = list(savage_targets.keys())
     if 1 <= n <= len(keys):
         savage_targets.pop(keys[n - 1], None)
+        await save_state()
         await event.edit(sys_text(f"Savage reply #{n} turned off."))
     else:
         await event.edit(sys_text("Invalid number."))
@@ -337,6 +409,8 @@ async def command_list(event):
         "/save_message — Start saving your next messages into the savage-reply list\n\n"
         "/complete_message — Stop saving messages\n\n"
         "/savage_reply on / off — Reply to a person's message to target them with the saved-message sequence\n\n"
+        "/fire_all — Send every saved message into this chat right now\n\n"
+        "/clear_savage — Delete all saved messages and active savage targets\n\n"
         "/current_reply_on — List every chat/person with auto-reply or savage-reply active\n\n"
         "/off_auto_reply_by_num N — Turn off auto-reply using the number from /current_reply_on\n\n"
         "/off_savage_reply_by_num N — Turn off savage-reply using the number from /current_reply_on\n\n"
@@ -357,6 +431,10 @@ async def capture_saved_message(event):
 async def incoming_handler(event):
     text = event.raw_text
     if not text:
+        return
+
+    sender = await event.get_sender()
+    if sender and getattr(sender, "bot", False):
         return
 
     chat_id = event.chat_id
@@ -451,23 +529,4 @@ async def convert_message(event):
     if event.id in skip_font_ids:
         skip_font_ids.discard(event.id)
         return
-    text = event.raw_text
-    if text.startswith(COMMAND_PREFIXES):
-        return
-    key = active_font["key"]
-    if key is None:
-        return
-    fn = FONTS[key][1]
-    new_text = fn(text)
-    if new_text != text:
-        await event.edit(new_text)
-
-async def notify_started():
-    await client.send_message("me", "✅ " + sys_text("Userbot Connected — font system ready."))
-
-if __name__ == "__main__":
-    keep_alive()
-    with client:
-        client.loop.run_until_complete(notify_started())
-        print("Userbot running...")
-        client.run_until_disconnected()            
+    
