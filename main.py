@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import random
@@ -96,6 +97,18 @@ def bold_upper_smallcaps_lower(text):
 def full_small_caps(text):
     return "".join(SMALL_CAPS.get(c.lower(), c) if c.islower() else c for c in text)
 
+PROTECT_PATTERN = re.compile(r'(https?://\S+|@\w+)')
+
+def apply_font_protected(text, font_fn):
+    parts = PROTECT_PATTERN.split(text)
+    result = []
+    for part in parts:
+        if part and PROTECT_PATTERN.fullmatch(part):
+            result.append(part)
+        else:
+            result.append(font_fn(part))
+    return "".join(result)
+
 def f1(t): return apply_map(t, SANS_BOLD_ITALIC)
 def f2(t): return bold_upper_smallcaps_lower(t)
 def f3(t): return title_small_caps(t, bold_first=False)
@@ -141,20 +154,20 @@ GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 PERSONA_PROMPT = (
-    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). lekin Freind ki tarah baat karna sabse"
+    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). "
     "Personality: friendly, smart, cool aura, confident, thoda dangerous/edgy vibe — "
     "lekin bilkul ek normal, real insaan ki tarah baat karo. Kabhi genuinely rude, "
-    "majak karo jab jarurat pade bina Mtlb ke nahi lekin. "
+    "threatening ya harmful nahi bante. "
     "Replies chhote aur seedhe rakho by default — sirf tab lamba likho jab genuinely "
     "detail ki zarurat ho (jaise koi specific sawaal poochhe). Chat casual ya funny "
     "direction mein ja rahi ho tab bhi tum thoda normal, careful tone mein hi raho — "
     "overboard funny banne ki koshish mat karo. "
     "Kabhi bhi anime characters ke naam (jaise Gojo, Sukuna, Fushiguro, Madara, Itachi, "
-    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya or kisi ko papa dada ye sab mt bolna koi bolne ko kahe to bhi lekin female ko bahen or male ko brother bol sakte ho "
+    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya "
     "poochhe. "
     "Language rule: chahe user English mein likhe ya Hindi mein, tum HAMESHA Hinglish "
     "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya "
-    "pure Devanagari Hindi mein nahi likhoge jarurat padne mai bol sakte ho kabhi reveal mt karna ki tum ai ho koi puchhe to bhi."
+    "pure Devanagari Hindi mein nahi likhoge."
 )
 
 def ask_ai(user_message):
@@ -321,7 +334,7 @@ async def fire_all(event):
     total = len(saved_messages)
     await event.edit(sys_text(f"Firing {total} messages..."))
     for msg in saved_messages:
-        styled = f2(msg)
+        styled = apply_font_protected(msg, f2)
         sent = await client.send_message(event.chat_id, styled)
         skip_font_ids.add(sent.id)
         await asyncio.sleep(0.7)
@@ -445,7 +458,7 @@ async def incoming_handler(event):
         if not saved_messages:
             return
         try:
-            reply_text = f2(next_savage_message())
+            reply_text = apply_font_protected(next_savage_message(), f2)
             sent = await send_with_typing_delay(event, reply_text, as_reply=True)
             skip_font_ids.add(sent.id)
         except Exception as e:
@@ -518,15 +531,4 @@ async def ping(event):
         )
     except Exception as e:
         result = (
-            "🏓 " + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
-            + "❌ " + sys_text("Website unreachable") + f": {e}\n"
-            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
-        )
-    await event.edit(result)
-
-@client.on(events.NewMessage(outgoing=True))
-async def convert_message(event):
-    if event.id in skip_font_ids:
-        skip_font_ids.discard(event.id)
-        return
-    
+            "🏓 " + sys_text("Telegr
