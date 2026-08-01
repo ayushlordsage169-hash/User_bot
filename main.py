@@ -13,7 +13,7 @@ from keep_alive import keep_alive
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
-WEBSITE_URL = "https://user-bot-y23w.onrender.com"
+WEBSITE_URL = "https://user-bot-p071.onrender.com"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -531,4 +531,35 @@ async def ping(event):
         )
     except Exception as e:
         result = (
-            "🏓 " + sys_text("Telegr
+            "🏓 " + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
+            + "❌ " + sys_text("Website unreachable") + f": {e}\n"
+            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
+        )
+    await event.edit(result)
+
+@client.on(events.NewMessage(outgoing=True))
+async def convert_message(event):
+    if event.id in skip_font_ids:
+        skip_font_ids.discard(event.id)
+        return
+    text = event.raw_text
+    if text.startswith(COMMAND_PREFIXES):
+        return
+    key = active_font["key"]
+    if key is None:
+        return
+    fn = FONTS[key][1]
+    new_text = apply_font_protected(text, fn)
+    if new_text != text:
+        await event.edit(new_text)
+
+async def notify_started():
+    await load_state()
+    await client.send_message("me", "✅ " + sys_text("Userbot Connected — font system ready."))
+
+if __name__ == "__main__":
+    keep_alive()
+    with client:
+        client.loop.run_until_complete(notify_started())
+        print("Userbot running...")
+        client.run_until_disconnected()
