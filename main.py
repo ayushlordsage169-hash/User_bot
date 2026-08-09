@@ -562,3 +562,17 @@ if __name__ == "__main__":
         client.loop.run_until_complete(notify_started())
         print("Userbot running...")
         client.run_until_disconnected()
+        #==========================SPAM=======================#
+        text = event.raw_text
+
+if text.startswith("/spam "):
+    data = text[6:].strip()
+    parts = data.rsplit(maxsplit=1)
+
+    if len(parts) == 2 and parts[1].isdigit():
+        msg = parts[0]
+        count = int(parts[1])
+
+        for i in range(count):
+            print(msg)
+            await client.send_message(event.chat_id, msg)
