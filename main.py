@@ -535,6 +535,7 @@ async def ping(event):
             + sys_text("Savage messages saved") + f": {len(saved_messages)}"
         )
     await event.edit(result)
+    
     @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/spam .+ \d+$'))
 async def test(event):
     try:
