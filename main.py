@@ -534,29 +534,33 @@ async def ping(event):
             + "❌ " + sys_text("Website unreachable") + f": {e}\n"
             + sys_text("Savage messages saved") + f": {len(saved_messages)}"
         )
-    await event.edit(result)
+    await event.edit(reclient.on(events.NewMessage(outgoing=Truesult)
     
-    @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/spam .+ \d+$'))
+    @client.on(events.NewMessage(outgoing=True))
 async def test(event):
-    try:
-        text = event.raw_text
+try:
+text = event.raw_text
 
-        data = text[6:].strip()
-        parts = data.rsplit(maxsplit=1)
+if text.startswith("/spam "):  
+        data = text[6:].strip()  
+        parts = data.rsplit(maxsplit=1)  
 
-        if len(parts) == 2 and parts[1].isdigit():
-            msg = parts[0]
-            count = int(parts[1])
+        if len(parts) == 2 and parts[1].isdigit():  
+            msg = parts[0]  
+            count = int(parts[1])  
 
-            for i in range(count):
-                print(msg)
-                await client.send_message(event.chat_id, msg)
+            for i in range(count):  
+                print(msg)  
+                await client.send_message(event.chat_id, msg)  
 
-        else:
-            print("❌ Invalid format")
+        else:  
+            await client.send_message(  
+                event.chat_id,  
+                "❌ Invalid format. Use: /test message count"  
+            )  
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+except Exception as e:  
+    print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True))
 async def convert_message(event):
@@ -576,7 +580,7 @@ async def convert_message(event):
 
 async def notify_started():
     await load_state()
-    await client.send_message("me", "✅ " + sys_text("Userbot Connected — font system ready."))
+    await client.send_message("me", "✅ " + sys_text("Userbot Connected — Death Sage Userbot."))
 
 if __name__ == "__main__":
     keep_alive()
