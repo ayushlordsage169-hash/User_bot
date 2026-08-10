@@ -535,6 +535,27 @@ async def ping(event):
             + sys_text("Savage messages saved") + f": {len(saved_messages)}"
         )
     await event.edit(result)
+    @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/spam .+ \d+$'))
+async def test(event):
+    try:
+        text = event.raw_text
+
+        data = text[6:].strip()
+        parts = data.rsplit(maxsplit=1)
+
+        if len(parts) == 2 and parts[1].isdigit():
+            msg = parts[0]
+            count = int(parts[1])
+
+            for i in range(count):
+                print(msg)
+                await client.send_message(event.chat_id, msg)
+
+        else:
+            print("❌ Invalid format")
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True))
 async def convert_message(event):
@@ -562,17 +583,3 @@ if __name__ == "__main__":
         client.loop.run_until_complete(notify_started())
         print("Userbot running...")
         client.run_until_disconnected()
-        #==========================SPAM=======================#
-        text = event.raw_text
-
-if text.startswith("/spam "):
-    data = text[6:].strip()
-    parts = data.rsplit(maxsplit=1)
-
-    if len(parts) == 2 and parts[1].isdigit():
-        msg = parts[0]
-        count = int(parts[1])
-
-        for i in range(count):
-            print(msg)
-            await client.send_message(event.chat_id, msg)
