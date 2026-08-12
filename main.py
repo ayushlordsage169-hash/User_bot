@@ -183,6 +183,7 @@ COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/off_savage_reply_by_num", "/command_list",
                      "/fire_all", "/clear_savage", "/s_e", "/dt",
                      "/approve_request")
+
 # ==================== GROQ AUTO-REPLY ====================
 
 GROQ_MODEL = "openai/gpt-oss-20b"
@@ -373,7 +374,8 @@ async def savage_reply_toggle(event):
         savage_targets.pop(key, None)
         await event.edit(sys_text("Savage reply OFF for this user."))
     await save_state()
-    @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/fire_all$'))
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/fire_all$'))
 async def fire_all(event):
     if not saved_messages:
         await event.edit(sys_text("No savage messages saved."))
@@ -550,7 +552,7 @@ async def approve_request_continuous(event):
     await event.edit(sys_text("Current requests approved. Now watching for new ones."))
 
 # NOTE: raw-update based auto-approval for NEW incoming requests, this is the
-# one piece not 100% confirmed against live docs — test this first.
+# one piece not 100% confirmed against live TBC-style docs - test this first.
 @client.on(events.Raw)
 async def raw_join_request_handler(update):
     if not approve_mode_chats:
@@ -569,6 +571,7 @@ async def raw_join_request_handler(update):
             await asyncio.sleep(2)
         except Exception as e:
             print(f"Approve request error: {e}")
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/command_list$'))
 async def command_list(event):
     raw = (
