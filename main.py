@@ -6,8 +6,10 @@ import random
 import asyncio
 import urllib.request
 import urllib.error
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions
 from telethon.sessions import StringSession
+from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.messages import HideChatJoinRequestRequest, HideAllChatJoinRequestsRequest
 from keep_alive import keep_alive
 
 API_ID = int(os.environ.get("API_ID"))
@@ -15,6 +17,7 @@ API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 WEBSITE_URL = "https://user-bot-p071.onrender.com"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+START_TIME = time.time()
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
@@ -43,17 +46,13 @@ SMALL_CAPS = {
 }
 
 BOLD = build_map(0x1D400, 0x1D41A)
-
 ITALIC = build_map(0x1D434, 0x1D44E)
 ITALIC.update({'h': '\u210E'})
-
 SANS_BOLD_ITALIC = build_map(0x1D63C, 0x1D656)
 MONOSPACE = build_map(0x1D670, 0x1D68A)
-
 DOUBLE_STRUCK = build_map(0x1D538, 0x1D552)
 DOUBLE_STRUCK.update({'C':'\u2102','H':'\u210D','N':'\u2115','P':'\u2119',
                        'Q':'\u211A','R':'\u211D','Z':'\u2124'})
-
 BOLD_FRAKTUR = build_map(0x1D56C, 0x1D586)
 BOLD_SCRIPT = build_map(0x1D4D0, 0x1D4EA)
 BOLD_ITALIC = build_map(0x1D468, 0x1D482)
@@ -142,449 +141,45 @@ skip_font_ids = set()
 def sys_text(s):
     return full_small_caps(s)
 
+# ==================== EMOTION LIBRARY ====================
+
+EMOTIONS = {
+    "e1": "⟵(๑¯◡¯๑)",
+    "e2": "(☞ ͡° ͜ʖ ͡°)☞",
+    "e3": "→_→",
+    "e4": "(✧Д✧)→",
+    "e5": "♡((灬º‿º灬)♡",
+    "e6": "ᕙ( ~ . ~ )ᕗ",
+    "e7": "⁄(⁄ ⁄•⁄-⁄•⁄ ⁄)⁄",
+    "e8": "♪┌|∵|┘♪    ♪└|∵|┐♪",
+    "e9": "ಥ‿ಥ",
+    "e10": "(༎ຶ ෴ ༎ຶ)",
+    "e11": "(----_____----)",
+    "e12": "(٥↼_↼)",
+    "e13": "(-_-メ)",
+    "e14": "(๑•﹏•)",
+    "e15": "´◔‿ゝ◔`)━☞",
+    "e16": "←(-_-メ)",
+}
+
+active_emotion = {"key": None, "position": None}
+
+def apply_emotion(text):
+    if active_emotion["key"] is None:
+        return text
+    emo = EMOTIONS[active_emotion["key"]]
+    pos = active_emotion["position"]
+    if pos == "L":
+        return f"{emo} {text}"
+    if pos == "R":
+        return f"{text} {emo}"
+    if pos == "LR":
+        return f"{emo} {text} {emo}"
+    return text
+
 COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/savage_reply", "/save_message", "/complete_message",
                      "/current_reply_on", "/off_auto_reply_by_num",
                      "/off_savage_reply_by_num", "/command_list",
-                     "/fire_all", "/clear_savage")
-
-# ==================== GROQ AUTO-REPLY ====================
-
-GROQ_MODEL = "openai/gpt-oss-20b"
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-PERSONA_PROMPT = (
-    "Tumhara naam 'Death Sage' hai (title: Death, name: Sage). "
-    "Personality: friendly, smart, cool aura, confident, thoda dangerous/edgy vibe — "
-    "lekin bilkul ek normal, real insaan ki tarah baat karo. Kabhi genuinely rude, "
-    "threatening ya harmful nahi bante. lekin koi papa bolne ko kahe to mt bolo kabhi ya jisi bhi prakar se agar tumhari bezati hoti hai to mt bolo or male ko brother or female ko sister bolte ho."
-    "Replies chhote aur seedhe rakho by default — sirf tab lamba likho jab genuinely "
-    "detail ki zarurat ho (jaise koi specific sawaal poochhe). Chat casual ya funny "
-    "direction mein ja rahi ho tab bhi tum thoda normal, careful tone mein hi raho — "
-    "overboard funny banne ki koshish mat karo. or ajanbi bhi nahi har baaar kisi se uska kaam mt puchho Nirmal friend jaisa talk karo"
-    "Kabhi bhi anime characters ke naam (jaise Gojo, Sukuna, Fushiguro, Madara, Itachi, "
-    "ya koi aur) apni marzi se mat lena — sirf tabhi jab user khud unka zikr kare ya "
-    "poochhe. "
-    "Language rule: chahe user English mein likhe ya Hindi mein, tum HAMESHA Hinglish "
-    "(Hindi-English mix, Roman script) mein hi reply karoge, kabhi pure English ya "
-    "pure Devanagari Hindi mein nahi likhoge. jarurat padne mai likh sakte ho jab koi kahe USme reply karne ko to."
-)
-
-def ask_ai(user_message):
-    body = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": PERSONA_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        GROQ_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            result = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode(errors="ignore")
-        raise RuntimeError(f"Groq HTTP {e.code}: {error_body[:200]}")
-
-    choices = result.get("choices")
-    if not choices:
-        raise RuntimeError(f"No choices returned: {result}")
-    return choices[0]["message"]["content"]
-
-GROUP_KEYWORDS = ("hello", "death", "sage")
-
-def has_keyword(text):
-    lower = text.lower()
-    return any(kw in lower for kw in GROUP_KEYWORDS)
-
-async def notify_error(message):
-    try:
-        await client.send_message("me", f"⚠️ {message}")
-    except Exception:
-        pass
-
-async def send_with_typing_delay(event, text, as_reply):
-    delay = random.uniform(1, 2) if len(text) <= 60 else random.uniform(3, 4)
-    async with client.action(event.chat_id, 'typing'):
-        await asyncio.sleep(delay)
-    if as_reply:
-        return await event.reply(text)
-    return await event.respond(text)
-
-auto_reply_chats = {}
-
-saved_messages = []
-save_mode = {"active": False}
-savage_targets = {}
-savage_global_index = {"value": 0}
-
-def next_savage_message():
-    idx = savage_global_index["value"]
-    msg = saved_messages[idx % len(saved_messages)]
-    savage_global_index["value"] = idx + 1
-    return msg
-
-def ordered_auto_reply_chats():
-    dm_ids = [cid for cid, info in auto_reply_chats.items() if not info["is_group"]]
-    group_ids = [cid for cid, info in auto_reply_chats.items() if info["is_group"]]
-    return dm_ids + group_ids
-
-# ==================== STATE PERSISTENCE (survives redeploys) ====================
-
-STATE_MARKER = "🗄 STATE_BACKUP (auto-generated, do not delete)"
-state_message_id = {"id": None}
-
-def serialize_state():
-    return json.dumps({
-        "saved_messages": saved_messages,
-        "savage_targets": [[cid, uid] for (cid, uid) in savage_targets.keys()],
-        "savage_global_index": savage_global_index["value"],
-        "auto_reply_chats": [[cid, info["is_group"]] for cid, info in auto_reply_chats.items()],
-    })
-
-async def save_state():
-    payload = STATE_MARKER + "\n" + serialize_state()
-    try:
-        if state_message_id["id"] is None:
-            sent = await client.send_message("me", payload)
-            state_message_id["id"] = sent.id
-        else:
-            await client.edit_message("me", state_message_id["id"], payload)
-    except Exception as e:
-        print(f"State save error: {e}")
-
-async def load_state():
-    try:
-        async for msg in client.iter_messages("me", search="STATE_BACKUP", limit=5):
-            if msg.text and msg.text.startswith(STATE_MARKER):
-                state_message_id["id"] = msg.id
-                data = json.loads(msg.text[len(STATE_MARKER):].strip())
-                saved_messages.clear()
-                saved_messages.extend(data.get("saved_messages", []))
-                savage_targets.clear()
-                for cid, uid in data.get("savage_targets", []):
-                    savage_targets[(cid, uid)] = True
-                savage_global_index["value"] = data.get("savage_global_index", 0)
-                auto_reply_chats.clear()
-                for cid, is_group in data.get("auto_reply_chats", []):
-                    auto_reply_chats[cid] = {"is_group": is_group}
-                return
-    except Exception as e:
-        print(f"State load error: {e}")
-# ==================== COMMANDS ====================
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/auto_reply (on|off)$'))
-async def auto_reply_toggle(event):
-    mode = event.pattern_match.group(1).lower()
-    chat_id = event.chat_id
-    if mode == "on":
-        auto_reply_chats[chat_id] = {"is_group": not event.is_private}
-        await event.edit(sys_text("Auto-reply ON for this chat."))
-    else:
-        auto_reply_chats.pop(chat_id, None)
-        await event.edit(sys_text("Auto-reply OFF for this chat."))
-    await save_state()
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/save_message$'))
-async def save_message_start(event):
-    save_mode["active"] = True
-    await event.edit(sys_text("Saving started — messages you send now will be added to the list. Send /complete_message to finish."))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/complete_message$'))
-async def save_message_end(event):
-    save_mode["active"] = False
-    await event.edit(sys_text(f"Saving complete. Total messages saved: {len(saved_messages)}"))
-    await save_state()
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/savage_reply (on|off)$'))
-async def savage_reply_toggle(event):
-    mode = event.pattern_match.group(1).lower()
-    if not event.is_reply:
-        await event.edit(sys_text("Reply to that person's message to use this command."))
-        return
-    replied = await event.get_reply_message()
-    target_id = replied.sender_id
-    key = (event.chat_id, target_id)
-    if mode == "on":
-        if not saved_messages:
-            await event.edit(sys_text("Save some messages first using /save_message."))
-            return
-        savage_targets[key] = True
-        await event.edit(sys_text("Savage reply ON for this user."))
-    else:
-        savage_targets.pop(key, None)
-        await event.edit(sys_text("Savage reply OFF for this user."))
-    await save_state()
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/fire_all$'))
-async def fire_all(event):
-    if not saved_messages:
-        await event.edit(sys_text("No savage messages saved."))
-        return
-    total = len(saved_messages)
-    await event.edit(sys_text(f"Firing {total} messages..."))
-    for msg in saved_messages:
-        styled = apply_font_protected(msg, f2)
-        sent = await client.send_message(event.chat_id, styled)
-        skip_font_ids.add(sent.id)
-        await asyncio.sleep(0.7)
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/clear_savage$'))
-async def clear_savage(event):
-    saved_messages.clear()
-    savage_targets.clear()
-    savage_global_index["value"] = 0
-    await save_state()
-    await event.edit(sys_text("All savage messages and targets cleared."))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/current_reply_on$'))
-async def current_reply_on(event):
-    lines = []
-    num = 1
-
-    dm_ids = [cid for cid, info in auto_reply_chats.items() if not info["is_group"]]
-    group_ids = [cid for cid, info in auto_reply_chats.items() if info["is_group"]]
-
-    if dm_ids:
-        lines.append(sys_text("Dm Auto Reply On"))
-        for cid in dm_ids:
-            entity = await client.get_entity(cid)
-            name = getattr(entity, "first_name", None) or getattr(entity, "title", None) or "Unknown"
-            lines.append(f"{num}. {name}")
-            num += 1
-
-    if group_ids:
-        if dm_ids:
-            lines.append("")
-        lines.append(sys_text("Group Auto Reply On"))
-        for cid in group_ids:
-            entity = await client.get_entity(cid)
-            name = getattr(entity, "title", None) or "Unknown"
-            lines.append(f"{num}. {name}")
-            num += 1
-
-    if savage_targets:
-        if lines:
-            lines.append("")
-        lines.append(sys_text("Savage Reply On"))
-        snum = 1
-        for (cid, uid) in savage_targets:
-            user = await client.get_entity(uid)
-            name = getattr(user, "first_name", None) or "Unknown"
-            lines.append(f"{snum}. {name}")
-            snum += 1
-
-    if not lines:
-        lines = [sys_text("Nothing is currently on.")]
-
-    await event.edit("\n".join(lines))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/off_auto_reply_by_num (\d+)$'))
-async def off_auto_reply_by_num(event):
-    n = int(event.pattern_match.group(1))
-    ids = ordered_auto_reply_chats()
-    if 1 <= n <= len(ids):
-        auto_reply_chats.pop(ids[n - 1], None)
-        await save_state()
-        await event.edit(sys_text(f"Auto-reply #{n} turned off."))
-    else:
-        await event.edit(sys_text("Invalid number."))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/off_savage_reply_by_num (\d+)$'))
-async def off_savage_reply_by_num(event):
-    n = int(event.pattern_match.group(1))
-    keys = list(savage_targets.keys())
-    if 1 <= n <= len(keys):
-        savage_targets.pop(keys[n - 1], None)
-        await save_state()
-        await event.edit(sys_text(f"Savage reply #{n} turned off."))
-    else:
-        await event.edit(sys_text("Invalid number."))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/command_list$'))
-async def command_list(event):
-    raw = (
-        "All Commands\n\n"
-        "/select f1-f15 / none — Choose a font for your own typed messages, or reset to normal\n\n"
-        "/font_list — Show all available fonts with a sample\n\n"
-        "/ping — Show Telegram and website latency\n\n"
-        "/auto_reply on / off — AI auto-reply for this chat (DM: every message, Group: keyword/tag only)\n\n"
-        "/save_message — Start saving your next messages into the savage-reply list\n\n"
-        "/complete_message — Stop saving messages\n\n"
-        "/savage_reply on / off — Reply to a person's message to target them with the saved-message sequence\n\n"
-        "/fire_all — Send every saved message into this chat right now\n\n"
-        "/clear_savage — Delete all saved messages and active savage targets\n\n"
-        "/current_reply_on — List every chat/person with auto-reply or savage-reply active\n\n"
-        "/off_auto_reply_by_num N — Turn off auto-reply using the number from /current_reply_on\n\n"
-        "/off_savage_reply_by_num N — Turn off savage-reply using the number from /current_reply_on\n\n"
-        "/command_list — Show this list"
-    )
-    await event.edit(sys_text(raw))
-
-@client.on(events.NewMessage(outgoing=True))
-async def capture_saved_message(event):
-    if not save_mode["active"]:
-        return
-    text = event.raw_text
-    if not text or text.startswith("/"):
-        return
-    saved_messages.append(text)
-
-@client.on(events.NewMessage(incoming=True))
-async def incoming_handler(event):
-    text = event.raw_text
-    if not text:
-        return
-
-    sender = await event.get_sender()
-    if sender and getattr(sender, "bot", False):
-        return
-
-    chat_id = event.chat_id
-    is_group = not event.is_private
-    key = (chat_id, event.sender_id)
-
-    if key in savage_targets:
-        if not saved_messages:
-            return
-        try:
-            reply_text = apply_font_protected(next_savage_message(), f2)
-            sent = await send_with_typing_delay(event, reply_text, as_reply=True)
-            skip_font_ids.add(sent.id)
-        except Exception as e:
-            print(f"Savage reply error: {e}")
-            await notify_error(f"Savage reply failed: {e}")
-        return
-
-    if is_group:
-        triggered = has_keyword(text) or event.message.mentioned
-        if not triggered:
-            return
-
-    if chat_id not in auto_reply_chats:
-        return
-    try:
-        reply = ask_ai(text)
-        sent = await send_with_typing_delay(event, reply, as_reply=is_group)
-        skip_font_ids.add(sent.id)
-    except Exception as e:
-        print(f"Auto-reply error: {e}")
-        await notify_error(f"Auto-reply failed: {e}")
-
-# ==================== FONT COMMANDS ====================
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/select (\S+)$'))
-async def select_font(event):
-    choice = event.pattern_match.group(1).lower()
-    if choice == "none":
-        active_font["key"] = None
-        await event.edit(sys_text("Font reset to normal."))
-        return
-    if choice in FONTS:
-        active_font["key"] = choice
-        name = FONTS[choice][0]
-        await event.edit(sys_text(f"Font set to {choice.upper()} ({name})."))
-    else:
-        await event.edit(sys_text("Invalid font. Use /font_list to see options."))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/font_list$'))
-async def font_list(event):
-    lines = [sys_text("Available Fonts:"), ""]
-    for key, (name, fn) in FONTS.items():
-        sample = fn("Hello")
-        lines.append(f"{key} -> {sample}  ({name})")
-    lines.append("")
-    lines.append(sys_text("Use /select f1 to f15, or /select none"))
-    await event.edit("\n".join(lines))
-
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/ping$'))
-async def ping(event):
-    t0 = time.time()
-    await event.edit("🏓 " + sys_text("Pinging..."))
-    t1 = time.time()
-    telegram_edit_ms = (t1 - t0) * 1000
-    try:
-        t_before = time.time()
-        with urllib.request.urlopen(WEBSITE_URL + "/ping", timeout=15) as resp:
-            server_ts = float(resp.read().decode().strip())
-        t_after = time.time()
-        to_website_ms = (server_ts - t_before) * 1000
-        from_website_ms = (t_after - server_ts) * 1000
-        total_http_ms = (t_after - t_before) * 1000
-        result = (
-            "🏓 " + sys_text("Pong!") + "\n\n"
-            + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
-            + sys_text("Telegram to Website") + f": {to_website_ms:.0f} ms\n"
-            + sys_text("Website to Telegram") + f": {from_website_ms:.0f} ms\n"
-            + sys_text("Total round-trip") + f": {total_http_ms:.0f} ms\n"
-            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
-        )
-    except Exception as e:
-        result = (
-            "🏓 " + sys_text("Telegram edit") + f": {telegram_edit_ms:.0f} ms\n"
-            + "❌ " + sys_text("Website unreachable") + f": {e}\n"
-            + sys_text("Savage messages saved") + f": {len(saved_messages)}"
-        )
-    await event.edit(reclient.on(events.NewMessage(outgoing=Truesult)
-    
-    @client.on(events.NewMessage(outgoing=True))
-async def test(event):
-try:
-text = event.raw_text
-
-if text.startswith("/spam "):  
-        data = text[6:].strip()  
-        parts = data.rsplit(maxsplit=1)  
-
-        if len(parts) == 2 and parts[1].isdigit():  
-            msg = parts[0]  
-            count = int(parts[1])  
-
-            for i in range(count):  
-                print(msg)  
-                await client.send_message(event.chat_id, msg)  
-
-        else:  
-            await client.send_message(  
-                event.chat_id,  
-                "❌ Invalid format. Use: /test message count"  
-            )  
-
-except Exception as e:  
-    print(f"❌ Error: {e}")
-
-@client.on(events.NewMessage(outgoing=True))
-async def convert_message(event):
-    if event.id in skip_font_ids:
-        skip_font_ids.discard(event.id)
-        return
-    text = event.raw_text
-    if text.startswith(COMMAND_PREFIXES):
-        return
-    key = active_font["key"]
-    if key is None:
-        return
-    fn = FONTS[key][1]
-    new_text = apply_font_protected(text, fn)
-    if new_text != text:
-        await event.edit(new_text)
-
-async def notify_started():
-    await load_state()
-    await client.send_message("me", "✅ " + sys_text("Userbot Connected — Death Sage Userbot."))
-
-if __name__ == "__main__":
-    keep_alive()
-    with client:
-        client.loop.run_until_complete(notify_started())
-        print("Userbot running...")
-        client.run_until_disconnected()
+                     "/fire_all", "/clear_savage", "/s_e", "/dt",
+                     "/approve_request")
