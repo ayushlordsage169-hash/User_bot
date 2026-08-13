@@ -182,7 +182,7 @@ COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/current_reply_on", "/off_auto_reply_by_num",
                      "/off_savage_reply_by_num", "/command_list",
                      "/fire_all", "/clear_savage", "/s_e", "/dt",
-                     "/approve_request", "/spam")
+                     "/approve_request", "/spam", "/print")
 
 # ==================== GROQ AUTO-REPLY ====================
 
@@ -568,6 +568,7 @@ async def test(event):
         # Terminal/log: count times
         for i in range(count):
             print(msg)
+            await asyncio.sleep(0.5)
             await client.send_message(event.chat_id, msg)
 
     except Exception as e:
