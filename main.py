@@ -170,11 +170,11 @@ def apply_emotion(text):
     emo = EMOTIONS[active_emotion["key"]]
     pos = active_emotion["position"]
     if pos == "L":
-        return f"{emo} {text}"
+        return f"{emo}  {text}"
     if pos == "R":
-        return f"{text} {emo}"
+        return f"{text}  {emo}"
     if pos == "LR":
-        return f"{emo} {text} {emo}"
+        return f"{emo}  {text}  {emo}"
     return text
 
 COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
@@ -532,52 +532,47 @@ async def dt_command(event):
             await event.edit(text)
     except Exception:
         await event.edit(text)
+
 @client.on(events.NewMessage(outgoing=True))
 async def test(event):
-try:
-text = event.raw_text
+    try:
+        text = event.raw_text
 
-if not text.startswith('/print '):
-return
+        if not text.startswith('/print '):
+            return
 
-data = text[7:].strip()
+        data = text[7:].strip()
 
-if not data.startswith('"'):
-await event.reply('❌ Use: /print "hello" "10"')
-return
+        if not data.startswith('"'):
+            await event.reply('❌ Use: /print "hello" "10"')
+            return
 
-end = data.find('"', 1)
+        end = data.find('"', 1)
 
-if end == -1:
-await event.reply("❌ Missing closing quote.")
-return
+        if end == -1:
+            await event.reply("❌ Missing closing quote.")
+            return
 
-msg = data[1:end]
-count_text = data[end + 1:].strip()
+        msg = data[1:end]
+        count_text = data[end + 1:].strip()
 
-if count_text.startswith('"') and count_text.endswith('"'):
-count_text = count_text[1:-1]
+        if count_text.startswith('"') and count_text.endswith('"'):
+            count_text = count_text[1:-1]
 
-if not count_text.isdigit():
-await event.reply(
-'❌ Count invalid. Use: /print "hello" "10"'
-)
-return
+        if not count_text.isdigit():
+            await event.reply('❌ Count invalid. Use: /print "hello" "10"')
+            return
 
-count = int(count_text)
+        count = int(count_text)
 
-Terminal: count times + delay
+        # Terminal/log: count times
+        for i in range(count):
+            print(msg)
+            await asyncio.sleep(3)
+            await client.send_message(event.chat_id, msg)
 
-for i in range(count):
-print(msg)
-await asyncio.sleep(3)
-await client.send_message(
-event.chat_id,
-msg
-)
-
-except Exception as e:
-print(f"❌ Error: {e}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True))
 async def test(event):
