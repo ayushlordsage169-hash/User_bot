@@ -578,7 +578,7 @@ msg
 
 except Exception as e:
 print(f"❌ Error: {e}")
-        
+
 @client.on(events.NewMessage(outgoing=True))
 async def test(event):
     try:
@@ -614,7 +614,7 @@ async def test(event):
         # Terminal/log: count times
         for i in range(count):
             print(msg)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
             await client.send_message(event.chat_id, msg)
 
     except Exception as e:
