@@ -506,19 +506,19 @@ async def dt_command(event):
         await event.edit(sys_text(f"Could not fetch user info: {e}"))
         return
 
-    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "None"
-    username = f"@{user.username}" if user.username else "None"
-    premium = "Yes" if getattr(user, "premium", False) else "No"
-    scam = "Yes" if getattr(user, "scam", False) else "No"
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Nᴏɴᴇ"
+    username = f"@{user.username}" if user.username else "Nᴏɴᴇ"
+    premium = "Yes" if getattr(user, "Pʀᴇᴍɪᴜᴍ", False) else "Nᴏ"
+    scam = "Yes" if getattr(user, "Sᴄᴀᴍ", False) else "Nᴏ"
 
     text = (
-        f"👤 Full Name: {full_name}\n"
-        f"🪪 First Name: {user.first_name or 'None'}\n"
-        f"📝 Last Name: {user.last_name or 'None'}\n"
-        f"🔗 Username: {username}\n"
-        f"🆔 User ID: {user.id}\n\n"
-        f"💎 Premium: {premium}\n"
-        f"🚨 Scam: {scam}\n\n"
+        f"👤 Fᴜʟʟ Nᴀᴍᴇ: {full_name}\n"
+        f"🪪 Fɪʀsᴛ Nᴀᴍᴇ: {user.first_name or 'None'}\n"
+        f"📝 Lᴀsᴛ Nᴀᴍᴇ: {user.last_name or 'None'}\n"
+        f"🔗 Usᴇʀɴᴀᴍᴇ: {username}\n"
+        f"🆔 Usᴇʀ Iᴅ: {user.id}\n\n"
+        f"💎 Pʀᴇᴍɪᴜᴍ: {premium}\n"
+        f"🚨 Sᴄᴀᴍ: {scam}\n\n"
         f"💬 Bio: {bio}"
     )
 
@@ -541,7 +541,7 @@ text = event.raw_text
 if not text.startswith('/fast_spam '):
 return
 
-data = text[10:].strip()    
+data = text[11:].strip()    
 
 if not data.startswith('"'):    
     await event.reply('❌ Use: /fast_spam "hello" "10"')    
