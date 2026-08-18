@@ -506,10 +506,10 @@ async def dt_command(event):
         await event.edit(sys_text(f"Could not fetch user info: {e}"))
         return
 
-    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Nᴏɴᴇ"
-    username = f"@{user.username}" if user.username else "Nᴏɴᴇ"
-    premium = "Yes" if getattr(user, "Pʀᴇᴍɪᴜᴍ", False) else "Nᴏ"
-    scam = "Yes" if getattr(user, "Sᴄᴀᴍ", False) else "Nᴏ"
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "None"
+    username = f"@{user.username}" if user.username else "None"
+    premium = "Yes" if getattr(user, "premium", False) else "No"
+    scam = "Yes" if getattr(user, "scam", False) else "Nᴏ"
 
     text = (
         f"👤 Fᴜʟʟ Nᴀᴍᴇ: {full_name}\n"
@@ -535,48 +535,47 @@ async def dt_command(event):
 
 @client.on(events.NewMessage(outgoing=True))
 async def test(event):
-try:
-text = event.raw_text
+    try:
+        text = event.raw_text
 
-if not text.startswith('/fast_spam '):
-return
+        if not text.startswith('/fast_spam '):
+            return
 
-data = text[11:].strip()    
+        data = text[11:].strip()
 
-if not data.startswith('"'):    
-    await event.reply('❌ Use: /fast_spam "hello" "10"')    
-    return    
+        if not data.startswith('"'):
+            await event.reply('❌ Use: /fast_spam "hello" "10"')
+            return
 
-end = data.find('"', 1)    
+        end = data.find('"', 1)
 
-if end == -1:    
-    await event.reply("❌ Missing closing quote.")    
-    return    
+        if end == -1:
+            await event.reply("❌ Missing closing quote.")
+            return
 
-msg = data[1:end]    
-count_text = data[end + 1:].strip()    
+        msg = data[1:end]
+        count_text = data[end + 1:].strip()
 
-if count_text.startswith('"') and count_text.endswith('"'):    
-    count_text = count_text[1:-1]    
+        if count_text.startswith('"') and count_text.endswith('"'):
+            count_text = count_text[1:-1]
 
-if not count_text.isdigit():    
-    await event.reply(    
-        '❌ Count invalid. Use: /fast_spam "hello" "10"'    
-    )    
-    return    
+        if not count_text.isdigit():
+            await event.reply(
+                '❌ Count invalid. Use: /fast_spam "hello" "10"'
+            )
+            return
 
-count = int(count_text)    
+        count = int(count_text)
 
-# Terminal: count times + delay    
-for i in range(count):    
-    print(msg)    
-    await client.send_message(    
-    event.chat_id,    
-    msg    
-)
+        for i in range(count):
+            print(msg)
+            await client.send_message(
+                event.chat_id,
+                msg
+            )
 
-except Exception as e:
-print(f"❌ Error: {e}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True))
 async def test(event):
