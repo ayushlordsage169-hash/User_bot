@@ -6,6 +6,8 @@ import random
 import asyncio
 import urllib.request
 import urllib.error
+import psutil
+from io import BytesIO
 from telethon import TelegramClient, events, functions
 from telethon.sessions import StringSession
 from telethon.tl.functions.users import GetFullUserRequest
@@ -170,11 +172,11 @@ def apply_emotion(text):
     emo = EMOTIONS[active_emotion["key"]]
     pos = active_emotion["position"]
     if pos == "L":
-        return f"{emo}  {text}"
+        return f"{emo} {text}"
     if pos == "R":
-        return f"{text}  {emo}"
+        return f"{text} {emo}"
     if pos == "LR":
-        return f"{emo}  {text}  {emo}"
+        return f"{emo} {text} {emo}"
     return text
 
 COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
@@ -182,7 +184,7 @@ COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/current_reply_on", "/off_auto_reply_by_num",
                      "/off_savage_reply_by_num", "/command_list",
                      "/fire_all", "/clear_savage", "/s_e", "/dt",
-                     "/approve_request", "/spam", "/print", "/fast_spam")
+                     "/approve_request", "/reboot")
 
 # ==================== GROQ AUTO-REPLY ====================
 
@@ -285,7 +287,7 @@ def format_uptime(seconds):
     if hours: parts.append(f"{hours}h")
     if minutes: parts.append(f"{minutes}m")
     parts.append(f"{seconds}s")
-    return " ".join(parts)
+    return full_small_caps(" ".join(parts))
 
 # ==================== STATE PERSISTENCE (survives redeploys) ====================
 
@@ -485,6 +487,24 @@ async def emotion_list(event):
         lines.append(line)
     await event.edit("\n".join(lines))
 
+def dt_template(full_name, first_name, last_name, user_id, username, premium, scam, bio):
+    return (
+        f"╭────────────────────╮\n"
+        f"         ✦ {f11('USER INFO')} ✦\n"
+        f"╰────────────────────╯\n\n"
+        f"👤 {f11('Full Name')} : {full_name}\n"
+        f"🔤 {f11('First Name')} : {first_name}\n"
+        f"🔤 {f11('Last Name')} : {last_name}\n"
+        f"🆔 {f11('User ID')} : {user_id}\n"
+        f"👑 {f11('Username')} : {username}\n\n"
+        f"💎 {f11('Premium Info')} : {premium}\n"
+        f"⚠️ {f11('Scam Info')} : {scam}\n\n"
+        f"📝 {f11('Bio')} : {bio}\n\n"
+        f"╭────────────────────╮\n"
+        f"        ✓ {f11('DETAILS CHECK')}\n"
+        f"╰────────────────────╯"
+    )
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/dt(?:\s+(\S+))?$'))
 async def dt_command(event):
     target = None
@@ -509,155 +529,25 @@ async def dt_command(event):
     full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "None"
     username = f"@{user.username}" if user.username else "None"
     premium = "Yes" if getattr(user, "premium", False) else "No"
-    scam = "Yes" if getattr(user, "scam", False) else "Nᴏ"
+    scam = "Yes" if getattr(user, "scam", False) else "No"
 
-    text = (
-        f"👤 Fᴜʟʟ Nᴀᴍᴇ: {full_name}\n"
-        f"🪪 Fɪʀsᴛ Nᴀᴍᴇ: {user.first_name or 'None'}\n"
-        f"📝 Lᴀsᴛ Nᴀᴍᴇ: {user.last_name or 'None'}\n"
-        f"🔗 Usᴇʀɴᴀᴍᴇ: {username}\n"
-        f"🆔 Usᴇʀ Iᴅ: {user.id}\n\n"
-        f"💎 Pʀᴇᴍɪᴜᴍ: {premium}\n"
-        f"🚨 Sᴄᴀᴍ: {scam}\n\n"
-        f"💬 Bio: {bio}"
+    text = dt_template(
+        full_name, user.first_name or "None", user.last_name or "None",
+        user.id, username, premium, scam, bio
     )
 
     await event.edit(sys_text("Fetching..."))
     try:
-        photo = await client.download_profile_photo(user, file=bytes)
-        if photo:
-            await client.send_file(event.chat_id, photo, caption=text)
+        photo_bytes = await client.download_profile_photo(user, file=bytes)
+        if photo_bytes:
+            bio_file = BytesIO(photo_bytes)
+            bio_file.name = "photo.jpg"
+            await client.send_file(event.chat_id, bio_file, caption=text)
             await event.delete()
         else:
             await event.edit(text)
     except Exception:
         await event.edit(text)
-
-@client.on(events.NewMessage(outgoing=True))
-async def test(event):
-    try:
-        text = event.raw_text
-
-        if not text.startswith('/fast_spam '):
-            return
-
-        data = text[11:].strip()
-
-        if not data.startswith('"'):
-            await event.reply('❌ Use: /fast_spam "hello" "10"')
-            return
-
-        end = data.find('"', 1)
-
-        if end == -1:
-            await event.reply("❌ Missing closing quote.")
-            return
-
-        msg = data[1:end]
-        count_text = data[end + 1:].strip()
-
-        if count_text.startswith('"') and count_text.endswith('"'):
-            count_text = count_text[1:-1]
-
-        if not count_text.isdigit():
-            await event.reply(
-                '❌ Count invalid. Use: /fast_spam "hello" "10"'
-            )
-            return
-
-        count = int(count_text)
-
-        for i in range(count):
-            print(msg)
-            await client.send_message(
-                event.chat_id,
-                msg
-            )
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
-
-@client.on(events.NewMessage(outgoing=True))
-async def test(event):
-    try:
-        text = event.raw_text
-
-        if not text.startswith('/print '):
-            return
-
-        data = text[7:].strip()
-
-        if not data.startswith('"'):
-            await event.reply('❌ Use: /print "hello" "10"')
-            return
-
-        end = data.find('"', 1)
-
-        if end == -1:
-            await event.reply("❌ Missing closing quote.")
-            return
-
-        msg = data[1:end]
-        count_text = data[end + 1:].strip()
-
-        if count_text.startswith('"') and count_text.endswith('"'):
-            count_text = count_text[1:-1]
-
-        if not count_text.isdigit():
-            await event.reply('❌ Count invalid. Use: /print "hello" "10"')
-            return
-
-        count = int(count_text)
-
-        # Terminal/log: count times
-        for i in range(count):
-            print(msg)
-            await asyncio.sleep(3)
-            await client.send_message(event.chat_id, msg)
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
-
-@client.on(events.NewMessage(outgoing=True))
-async def test(event):
-    try:
-        text = event.raw_text
-
-        if not text.startswith('/spam '):
-            return
-
-        data = text[6:].strip()
-
-        if not data.startswith('"'):
-            await event.reply('❌ Use: /spam "hello" "10"')
-            return
-
-        end = data.find('"', 1)
-
-        if end == -1:
-            await event.reply("❌ Missing closing quote.")
-            return
-
-        msg = data[1:end]
-        count_text = data[end + 1:].strip()
-
-        if count_text.startswith('"') and count_text.endswith('"'):
-            count_text = count_text[1:-1]
-
-        if not count_text.isdigit():
-            await event.reply('❌ Count invalid. Use: /spam "hello" "10"')
-            return
-
-        count = int(count_text)
-
-        # Terminal/log: count times
-        for i in range(count):
-            print(msg)
-            await asyncio.sleep(0.3)
-            await client.send_message(event.chat_id, msg)
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/approve_request_all$'))
 async def approve_request_all(event):
@@ -720,6 +610,7 @@ async def command_list(event):
         "/dt — Reply to someone, or give @username/user_id, for their info card\n\n"
         "/approve_request — Approve pending join requests, then keep auto-approving new ones\n\n"
         "/approve_request_all — Approve all pending join requests once\n\n"
+        "/reboot — Clear font, emotion, auto-reply and approve-mode state (keeps savage-reply data)\n\n"
         "/command_list — Show this list"
     )
     await event.edit(sys_text(raw))
@@ -809,6 +700,8 @@ async def ping(event):
 
     current_font = active_font["key"].upper() if active_font["key"] else "None"
     uptime = format_uptime(time.time() - START_TIME)
+    cpu_pct = psutil.cpu_percent()
+    ram_pct = psutil.virtual_memory().percent
 
     try:
         t_before = time.time()
@@ -826,7 +719,9 @@ async def ping(event):
             + sys_text("Total round-trip") + f": {total_http_ms:.0f} ms\n"
             + sys_text("Savage messages saved") + f": {len(saved_messages)}\n"
             + sys_text("Current font") + f": {current_font}\n"
-            + sys_text("Uptime") + f": {uptime}"
+            + sys_text("Uptime") + f": {uptime}\n"
+            + sys_text("CPU load") + f": {cpu_pct}%\n"
+            + sys_text("RAM load") + f": {ram_pct}%"
         )
     except Exception as e:
         result = (
@@ -834,7 +729,9 @@ async def ping(event):
             + "❌ " + sys_text("Website unreachable") + f": {e}\n"
             + sys_text("Savage messages saved") + f": {len(saved_messages)}\n"
             + sys_text("Current font") + f": {current_font}\n"
-            + sys_text("Uptime") + f": {uptime}"
+            + sys_text("Uptime") + f": {uptime}\n"
+            + sys_text("CPU load") + f": {cpu_pct}%\n"
+            + sys_text("RAM load") + f": {ram_pct}%"
         )
     await event.edit(result)
 
@@ -859,8 +756,21 @@ async def convert_message(event):
     if final_text != text:
         await event.edit(final_text)
 
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/reboot$'))
+async def reboot(event):
+    active_font["key"] = None
+    active_emotion["key"] = None
+    active_emotion["position"] = None
+    auto_reply_chats.clear()
+    approve_mode_chats.clear()
+    skip_font_ids.clear()
+    save_mode["active"] = False
+    await save_state()
+    await event.edit(sys_text("Reboot complete. Savage reply data kept, everything else reset."))
+
 async def notify_started():
     await load_state()
+    psutil.cpu_percent()
     await client.send_message("me", "✅ " + sys_text("Userbot Connected — font system ready."))
 
 if __name__ == "__main__":
