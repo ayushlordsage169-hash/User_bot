@@ -184,7 +184,7 @@ COMMAND_PREFIXES = ("/select", "/font_list", "/ping", "/auto_reply",
                      "/current_reply_on", "/off_auto_reply_by_num",
                      "/off_savage_reply_by_num", "/command_list",
                      "/fire_all", "/clear_savage", "/s_e", "/dt",
-                     "/approve_request", "/reboot")
+                     "/approve_request", "/reboot", "/fast_spam", "/spam", "/print")
 
 # ==================== GROQ AUTO-REPLY ====================
 
@@ -504,6 +504,131 @@ def dt_template(full_name, first_name, last_name, user_id, username, premium, sc
         f"        ✓ {f11('DETAILS CHECK')}\n"
         f"╰────────────────────╯"
     )
+@client.on(events.NewMessage(outgoing=True))
+async def test(event):
+    try:
+        text = event.raw_text
+
+        if not text.startswith('/fast_spam '):
+            return
+
+        data = text[11:].strip()
+
+        if not data.startswith('"'):
+            await event.reply('❌ Use: /fast_spam "hello" "10"')
+            return
+
+        end = data.find('"', 1)
+
+        if end == -1:
+            await event.reply("❌ Missing closing quote.")
+            return
+
+        msg = data[1:end]
+        count_text = data[end + 1:].strip()
+
+        if count_text.startswith('"') and count_text.endswith('"'):
+            count_text = count_text[1:-1]
+
+        if not count_text.isdigit():
+            await event.reply(
+                '❌ Count invalid. Use: /fast_spam "hello" "10"'
+            )
+            return
+
+        count = int(count_text)
+
+        for i in range(count):
+            print(msg)
+            await client.send_message(
+                event.chat_id,
+                msg
+            )
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+@client.on(events.NewMessage(outgoing=True))
+async def test(event):
+    try:
+        text = event.raw_text
+
+        if not text.startswith('/print '):
+            return
+
+        data = text[7:].strip()
+
+        if not data.startswith('"'):
+            await event.reply('❌ Use: /print "hello" "10"')
+            return
+
+        end = data.find('"', 1)
+
+        if end == -1:
+            await event.reply("❌ Missing closing quote.")
+            return
+
+        msg = data[1:end]
+        count_text = data[end + 1:].strip()
+
+        if count_text.startswith('"') and count_text.endswith('"'):
+            count_text = count_text[1:-1]
+
+        if not count_text.isdigit():
+            await event.reply('❌ Count invalid. Use: /print "hello" "10"')
+            return
+
+        count = int(count_text)
+
+        # Terminal/log: count times
+        for i in range(count):
+            print(msg)
+            await asyncio.sleep(3)
+            await client.send_message(event.chat_id, msg)
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+@client.on(events.NewMessage(outgoing=True))
+async def test(event):
+    try:
+        text = event.raw_text
+
+        if not text.startswith('/spam '):
+            return
+
+        data = text[6:].strip()
+
+        if not data.startswith('"'):
+            await event.reply('❌ Use: /spam "hello" "10"')
+            return
+
+        end = data.find('"', 1)
+
+        if end == -1:
+            await event.reply("❌ Missing closing quote.")
+            return
+
+        msg = data[1:end]
+        count_text = data[end + 1:].strip()
+
+        if count_text.startswith('"') and count_text.endswith('"'):
+            count_text = count_text[1:-1]
+
+        if not count_text.isdigit():
+            await event.reply('❌ Count invalid. Use: /spam "hello" "10"')
+            return
+
+        count = int(count_text)
+
+        # Terminal/log: count times
+        for i in range(count):
+            print(msg)
+            await asyncio.sleep(0.3)
+            await client.send_message(event.chat_id, msg)
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^/dt(?:\s+(\S+))?$'))
 async def dt_command(event):
